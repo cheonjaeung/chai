@@ -35,6 +35,12 @@ type row struct {
 	highlights []diff.Range
 }
 
+// segment is a part of a text to draw with the same style.
+type segment struct {
+	text        string
+	highlighted bool
+}
+
 func (r row) hasPrefix() bool {
 	return r.kind == rowLine || r.kind == rowNoNewline
 }
@@ -150,6 +156,31 @@ func countKind(lines []diff.Line, kind diff.LineKind) int {
 		n++
 	}
 	return n
+}
+
+// highlightSegments splits text into segments by highlights.
+//
+// The text can be a part of a row text cut by soft-wrap. offset is the start of
+// text in the row text, because highlights are byte ranges of the row text.
+func highlightSegments(text string, offset int, highlights []diff.Range) []segment {
+	var segments []segment
+	pos := 0
+	for _, h := range highlights {
+		start := min(max(h.Start-offset, 0), len(text))
+		end := min(max(h.End-offset, 0), len(text))
+		if start == end {
+			continue
+		}
+		if pos < start {
+			segments = append(segments, segment{text: text[pos:start]})
+		}
+		segments = append(segments, segment{text: text[start:end], highlighted: true})
+		pos = end
+	}
+	if pos < len(text) {
+		segments = append(segments, segment{text: text[pos:]})
+	}
+	return segments
 }
 
 // numberWidth returns the number of digits of the largest line number in f.

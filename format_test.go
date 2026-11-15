@@ -162,3 +162,90 @@ func contents(lines []diff.Line) []string {
 	}
 	return texts
 }
+
+func TestHighlightSegmentsNoHighlights(t *testing.T) {
+	segments := highlightSegments("let x = 1;", 0, nil)
+	expect := []segment{
+		{text: "let x = 1;"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsMiddle(t *testing.T) {
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("let x = 1;", 0, highlights)
+	expect := []segment{
+		{text: "let x = "},
+		{text: "1", highlighted: true},
+		{text: ";"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsWholeText(t *testing.T) {
+	highlights := []diff.Range{{Start: 0, End: 3}}
+	segments := highlightSegments("abc", 0, highlights)
+	expect := []segment{
+		{text: "abc", highlighted: true},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsWithOffset(t *testing.T) {
+	// "x = 1;" is the soft-wrapped part of "let x = 1;" from 4.
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("x = 1;", 4, highlights)
+	expect := []segment{
+		{text: "x = "},
+		{text: "1", highlighted: true},
+		{text: ";"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsOutsideText(t *testing.T) {
+	// "let " is the first part of "let x = 1;", before the highlight.
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("let ", 0, highlights)
+	expect := []segment{
+		{text: "let "},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsCutBySoftWrap(t *testing.T) {
+	// "abcdef" is soft-wrapped into "abc" and "def", and "cde" is highlighted.
+	highlights := []diff.Range{{Start: 2, End: 5}}
+	first := highlightSegments("abc", 0, highlights)
+	second := highlightSegments("def", 3, highlights)
+	expectFirst := []segment{
+		{text: "ab"},
+		{text: "c", highlighted: true},
+	}
+	expectSecond := []segment{
+		{text: "de", highlighted: true},
+		{text: "f"},
+	}
+
+	if !reflect.DeepEqual(expectFirst, first) {
+		t.Errorf("first: expected=%+v, actual=%+v", expectFirst, first)
+	}
+	if !reflect.DeepEqual(expectSecond, second) {
+		t.Errorf("second: expected=%+v, actual=%+v", expectSecond, second)
+	}
+}
