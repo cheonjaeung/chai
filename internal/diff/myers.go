@@ -13,12 +13,22 @@ type snake struct {
 	endY   int
 }
 
+// edit is a single step to transform old into new.
+//
+// oldIndex is the index of this step at the old sequence, and newIndex is the
+// index at the new sequence.
+type edit struct {
+	kind     LineKind
+	oldIndex int
+	newIndex int
+}
+
 // MyersDiff compares two files, oldText and newText, using the myers diff
 // algorithm.
 //
 // The result has a single hunk that contains all lines of both files, or no
 // hunk if both files are empty.
-func MyersDiff(oldText, newText string) File {
+func MyersDiff(oldText string, newText string) File {
 	a := utils.SplitLines(oldText)
 	b := utils.SplitLines(newText)
 	lines := diffLines(a, b)
@@ -29,11 +39,26 @@ func MyersDiff(oldText, newText string) File {
 }
 
 func diffLines(a []string, b []string) []Line {
+	var lines []Line
+	for _, e := range editScript(a, b) {
+		switch e.kind {
+		case LineContext:
+			lines = append(lines, newLine(LineContext, a[e.oldIndex], e.oldIndex+1, e.newIndex+1))
+		case LineDeleted:
+			lines = append(lines, newLine(LineDeleted, a[e.oldIndex], e.oldIndex+1, 0))
+		case LineAdded:
+			lines = append(lines, newLine(LineAdded, b[e.newIndex], 0, e.newIndex+1))
+		}
+	}
+	return lines
+}
+
+func editScript(a []string, b []string) []edit {
 	n := len(a)
 	m := len(b)
 	offset := (n+m+1)/2 + 1
 
-	var script []Line
+	var script []edit
 
 	vf := make([]int, 2*offset+1)
 	vb := make([]int, 2*offset+1)
@@ -43,16 +68,16 @@ func diffLines(a []string, b []string) []Line {
 	return script
 }
 
-func diffRange(script *[]Line, a []string, b []string, aStart int, bStart int, vf []int, vb []int) {
+func diffRange(script *[]edit, a []string, b []string, aStart int, bStart int, vf []int, vb []int) {
 	if len(a) == 0 {
-		for i, t := range b {
-			*script = append(*script, newLine(LineAdded, t, 0, bStart+i+1))
+		for i := range b {
+			*script = append(*script, edit{kind: LineAdded, newIndex: bStart + i})
 		}
 		return
 	}
 	if len(b) == 0 {
-		for i, t := range a {
-			*script = append(*script, newLine(LineDeleted, t, aStart+i+1, 0))
+		for i := range a {
+			*script = append(*script, edit{kind: LineDeleted, oldIndex: aStart + i})
 		}
 		return
 	}
@@ -61,8 +86,8 @@ func diffRange(script *[]Line, a []string, b []string, aStart int, bStart int, v
 
 	if d > 1 {
 		diffRange(script, a[:mid.startX], b[:mid.startY], aStart, bStart, vf, vb)
-		for i, t := range a[mid.startX:mid.endX] {
-			*script = append(*script, newLine(LineContext, t, aStart+mid.startX+i+1, bStart+mid.startY+i+1))
+		for i := range mid.endX - mid.startX {
+			*script = append(*script, edit{kind: LineContext, oldIndex: aStart + mid.startX + i, newIndex: bStart + mid.startY + i})
 		}
 		diffRange(script, a[mid.endX:], b[mid.endY:], aStart+mid.endX, bStart+mid.endY, vf, vb)
 		return
@@ -70,19 +95,19 @@ func diffRange(script *[]Line, a []string, b []string, aStart int, bStart int, v
 
 	x, y := 0, 0
 	for x < len(a) && y < len(b) && a[x] == b[y] {
-		*script = append(*script, newLine(LineContext, a[x], aStart+x+1, bStart+y+1))
+		*script = append(*script, edit{kind: LineContext, oldIndex: aStart + x, newIndex: bStart + y})
 		x++
 		y++
 	}
 	if len(a) > len(b) {
-		*script = append(*script, newLine(LineDeleted, a[x], aStart+x+1, 0))
+		*script = append(*script, edit{kind: LineDeleted, oldIndex: aStart + x})
 		x++
 	} else if len(b) > len(a) {
-		*script = append(*script, newLine(LineAdded, b[y], 0, bStart+y+1))
+		*script = append(*script, edit{kind: LineAdded, newIndex: bStart + y})
 		y++
 	}
 	for x < len(a) {
-		*script = append(*script, newLine(LineContext, a[x], aStart+x+1, bStart+y+1))
+		*script = append(*script, edit{kind: LineContext, oldIndex: aStart + x, newIndex: bStart + y})
 		x++
 		y++
 	}

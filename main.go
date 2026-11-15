@@ -148,8 +148,16 @@ func runGitDiffFilterPrinter(writer io.Writer, d diff.Diff) error {
 			bufWriter.WriteString(sgr(separatorStyle) + "⋮")
 			bufWriter.WriteString(sgr(numberStyle) + r.newNumber)
 			bufWriter.WriteString(sgr(tcell.StyleDefault) + " ")
+			bufWriter.WriteString(sgr(lineStyle) + r.marker)
+			for _, s := range highlightSegments(r.text, 0, r.highlights) {
+				if s.highlighted {
+					bufWriter.WriteString(sgr(highlightStyle(r)) + s.text + sgr(lineStyle))
+				} else {
+					bufWriter.WriteString(s.text)
+				}
+			}
 			// Erases to the end of the line to fill the background like the viewer.
-			bufWriter.WriteString(sgr(lineStyle) + r.marker + r.text + "\x1b[K")
+			bufWriter.WriteString("\x1b[K")
 		case rowHunkHeader:
 			bufWriter.WriteString(sgr(hunkHeaderStyle) + r.text)
 		default:

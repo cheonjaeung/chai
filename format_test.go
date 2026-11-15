@@ -64,3 +64,188 @@ func TestFormatDiff(t *testing.T) {
 		t.Errorf("formatDiff()\ngot:  %q\nwant: %q", got, want)
 	}
 }
+
+func TestWordHighlightsPaired(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{
+		{{Start: 8, End: 9}},
+		{{Start: 8, End: 9}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsMultipleLines(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineContext, Content: "x"},
+		{Kind: diff.LineDeleted, Content: "foo(1)"},
+		{Kind: diff.LineDeleted, Content: "bar(1)"},
+		{Kind: diff.LineAdded, Content: "foo(2)"},
+		{Kind: diff.LineAdded, Content: "bar(2)"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{
+		nil,
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsUnequalBlocks(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+		{Kind: diff.LineAdded, Content: "let y = 3"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{nil, nil, nil}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsAddedBeforeDeleted(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{nil, nil}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestFormatFileHighlightsAfterSanitize(t *testing.T) {
+	f := diff.File{Hunks: []diff.Hunk{{
+		Lines: []diff.Line{
+			{Kind: diff.LineDeleted, Content: "\tx = 1", OldNumber: 1},
+			{Kind: diff.LineAdded, Content: "\tx = 2", NewNumber: 1},
+		},
+	}}}
+
+	var highlights [][]diff.Range
+	for _, r := range formatFile(f, false) {
+		if r.kind == rowLine {
+			highlights = append(highlights, r.highlights)
+		}
+	}
+	// The tab is expanded to 4 spaces, so "1" and "2" are at 8, not 5.
+	expect := [][]diff.Range{
+		{{Start: 8, End: 9}},
+		{{Start: 8, End: 9}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func contents(lines []diff.Line) []string {
+	texts := make([]string, len(lines))
+	for i, l := range lines {
+		texts[i] = l.Content
+	}
+	return texts
+}
+
+func TestHighlightSegmentsNoHighlights(t *testing.T) {
+	segments := highlightSegments("let x = 1;", 0, nil)
+	expect := []segment{
+		{text: "let x = 1;"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsMiddle(t *testing.T) {
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("let x = 1;", 0, highlights)
+	expect := []segment{
+		{text: "let x = "},
+		{text: "1", highlighted: true},
+		{text: ";"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsWholeText(t *testing.T) {
+	highlights := []diff.Range{{Start: 0, End: 3}}
+	segments := highlightSegments("abc", 0, highlights)
+	expect := []segment{
+		{text: "abc", highlighted: true},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsWithOffset(t *testing.T) {
+	// "x = 1;" is the soft-wrapped part of "let x = 1;" from 4.
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("x = 1;", 4, highlights)
+	expect := []segment{
+		{text: "x = "},
+		{text: "1", highlighted: true},
+		{text: ";"},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsOutsideText(t *testing.T) {
+	// "let " is the first part of "let x = 1;", before the highlight.
+	highlights := []diff.Range{{Start: 8, End: 9}}
+	segments := highlightSegments("let ", 0, highlights)
+	expect := []segment{
+		{text: "let "},
+	}
+
+	if !reflect.DeepEqual(expect, segments) {
+		t.Errorf("expected=%+v, actual=%+v", expect, segments)
+	}
+}
+
+func TestHighlightSegmentsCutBySoftWrap(t *testing.T) {
+	// "abcdef" is soft-wrapped into "abc" and "def", and "cde" is highlighted.
+	highlights := []diff.Range{{Start: 2, End: 5}}
+	first := highlightSegments("abc", 0, highlights)
+	second := highlightSegments("def", 3, highlights)
+	expectFirst := []segment{
+		{text: "ab"},
+		{text: "c", highlighted: true},
+	}
+	expectSecond := []segment{
+		{text: "de", highlighted: true},
+		{text: "f"},
+	}
+
+	if !reflect.DeepEqual(expectFirst, first) {
+		t.Errorf("first: expected=%+v, actual=%+v", expectFirst, first)
+	}
+	if !reflect.DeepEqual(expectSecond, second) {
+		t.Errorf("second: expected=%+v, actual=%+v", expectSecond, second)
+	}
+}

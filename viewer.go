@@ -13,6 +13,9 @@ var (
 	addedBackground   = tcell.NewRGBColor(78, 91, 87)
 	deletedBackground = tcell.NewRGBColor(94, 72, 86)
 
+	addedHighlightStyle   = tcell.StyleDefault.Background(tcell.NewRGBColor(96, 128, 108))
+	deletedHighlightStyle = tcell.StyleDefault.Background(tcell.NewRGBColor(130, 82, 102))
+
 	addedNumberStyle   = tcell.StyleDefault.Foreground(tcell.PaletteColor(2))
 	deletedNumberStyle = tcell.StyleDefault.Foreground(tcell.PaletteColor(1))
 	contextNumberStyle = tcell.StyleDefault.Foreground(tcell.PaletteColor(246))
@@ -41,6 +44,8 @@ type screenRow struct {
 	row int
 	// text is the content of this line.
 	text string
+	// offset is the start of text in the row text, used to find the highlights of text.
+	offset int
 	// softWrap is true when this line continues the previous one.
 	softWrap bool
 	// style is the style at the start of text, used only by rowText.
@@ -129,9 +134,11 @@ func (v *Viewer) layout() {
 			contentWidth -= uniseg.StringWidth(r.prefix())
 		}
 		style := tcell.StyleDefault
+		offset := 0
 		for j, text := range wrap(r.text, contentWidth) {
-			v.screenRows = append(v.screenRows, screenRow{row: i, text: text, softWrap: j > 0, style: style})
+			v.screenRows = append(v.screenRows, screenRow{row: i, text: text, offset: offset, softWrap: j > 0, style: style})
 			style = endStyle(text, style)
+			offset += len(text)
 		}
 
 		if boxed && (i+1 == len(v.rows) || v.rows[i+1].kind == rowText || v.rows[i+1].kind == rowFileHeader) {
@@ -226,10 +233,24 @@ func (v *Viewer) drawLine(x, y, right int, r row, sr screenRow) {
 	x = v.put(x, y, newNumber, numberStyle)
 	x = v.put(x, y, " ", tcell.StyleDefault)
 	x = v.put(x, y, marker, markerStyle)
-	x = v.put(x, y, sr.text, lineStyle)
+	for _, s := range highlightSegments(sr.text, sr.offset, r.highlights) {
+		if s.highlighted {
+			x = v.put(x, y, s.text, highlightStyle(r))
+		} else {
+			x = v.put(x, y, s.text, lineStyle)
+		}
+	}
 	for ; x < right; x++ {
 		v.screen.SetContent(x, y, ' ', nil, lineStyle)
 	}
+}
+
+// highlightStyle returns the style of the highlighted words of r.
+func highlightStyle(r row) tcell.Style {
+	if r.lineKind == diff.LineAdded {
+		return addedHighlightStyle
+	}
+	return deletedHighlightStyle
 }
 
 // borderLine returns a horizontal border line of width, between left and right corners.
