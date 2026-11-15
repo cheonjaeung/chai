@@ -1,0 +1,12 @@
+.vscode/
+.zed/
+.idea/
+
+*.test
+*.out
+*.prof
+coverage.*
+
+/chai
+
+.DS_Store
