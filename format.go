@@ -27,11 +27,12 @@ const (
 type row struct {
 	kind rowKind
 	// lineKind, oldNumber, newNumber and marker are used only by rowLine and rowNoNewline.
-	lineKind  diff.LineKind
-	oldNumber string
-	newNumber string
-	marker    string
-	text      string
+	lineKind   diff.LineKind
+	oldNumber  string
+	newNumber  string
+	marker     string
+	text       string
+	highlights []diff.Range
 }
 
 func (r row) hasPrefix() bool {
@@ -87,14 +88,20 @@ func formatFile(f diff.File, rawHeader bool) []row {
 			kind: rowHunkHeader,
 			text: fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OldStart, h.OldLines, h.NewStart, h.NewLines),
 		})
-		for _, l := range h.Lines {
+		texts := make([]string, len(h.Lines))
+		for i, l := range h.Lines {
+			texts[i] = sanitize(l.Content, false)
+		}
+		highlights := wordHighlights(h.Lines, texts)
+		for i, l := range h.Lines {
 			rows = append(rows, row{
-				kind:      rowLine,
-				lineKind:  l.Kind,
-				oldNumber: formatNumber(l.OldNumber, width),
-				newNumber: formatNumber(l.NewNumber, width),
-				marker:    marker(l.Kind),
-				text:      sanitize(l.Content, false),
+				kind:       rowLine,
+				lineKind:   l.Kind,
+				oldNumber:  formatNumber(l.OldNumber, width),
+				newNumber:  formatNumber(l.NewNumber, width),
+				marker:     marker(l.Kind),
+				text:       texts[i],
+				highlights: highlights[i],
 			})
 			if l.NoNewlineAtEOF {
 				rows = append(rows, row{
@@ -108,6 +115,41 @@ func formatFile(f diff.File, rawHeader bool) []row {
 		}
 	}
 	return rows
+}
+
+// wordHighlights returns the changed byte ranges of each text of lines.
+//
+// It pairs a block of deleted lines with the block of added lines right after
+// it, only if both blocks have the same number of lines.
+func wordHighlights(lines []diff.Line, texts []string) [][]diff.Range {
+	highlights := make([][]diff.Range, len(lines))
+	for i := 0; i < len(lines); {
+		deleted := countKind(lines[i:], diff.LineDeleted)
+		if deleted == 0 {
+			i++
+			continue
+		}
+		added := countKind(lines[i+deleted:], diff.LineAdded)
+		// Highlight words only if the number of deleted and added lines is the same,
+		// because pairing unequal lines may show a wrong highlight.
+		if deleted == added {
+			for j := range deleted {
+				o, n := i+j, i+deleted+j
+				highlights[o], highlights[n] = diff.WordDiff(texts[o], texts[n])
+			}
+		}
+		i += deleted + added
+	}
+	return highlights
+}
+
+// countKind returns the number of consecutive lines of kind from the start of lines.
+func countKind(lines []diff.Line, kind diff.LineKind) int {
+	n := 0
+	for n < len(lines) && lines[n].Kind == kind {
+		n++
+	}
+	return n
 }
 
 // numberWidth returns the number of digits of the largest line number in f.

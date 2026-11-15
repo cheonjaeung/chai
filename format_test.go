@@ -64,3 +64,101 @@ func TestFormatDiff(t *testing.T) {
 		t.Errorf("formatDiff()\ngot:  %q\nwant: %q", got, want)
 	}
 }
+
+func TestWordHighlightsPaired(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{
+		{{Start: 8, End: 9}},
+		{{Start: 8, End: 9}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsMultipleLines(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineContext, Content: "x"},
+		{Kind: diff.LineDeleted, Content: "foo(1)"},
+		{Kind: diff.LineDeleted, Content: "bar(1)"},
+		{Kind: diff.LineAdded, Content: "foo(2)"},
+		{Kind: diff.LineAdded, Content: "bar(2)"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{
+		nil,
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+		{{Start: 4, End: 5}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsUnequalBlocks(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+		{Kind: diff.LineAdded, Content: "let y = 3"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{nil, nil, nil}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestWordHighlightsAddedBeforeDeleted(t *testing.T) {
+	lines := []diff.Line{
+		{Kind: diff.LineAdded, Content: "let x = 2"},
+		{Kind: diff.LineDeleted, Content: "let x = 1"},
+	}
+	highlights := wordHighlights(lines, contents(lines))
+	expect := [][]diff.Range{nil, nil}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func TestFormatFileHighlightsAfterSanitize(t *testing.T) {
+	f := diff.File{Hunks: []diff.Hunk{{
+		Lines: []diff.Line{
+			{Kind: diff.LineDeleted, Content: "\tx = 1", OldNumber: 1},
+			{Kind: diff.LineAdded, Content: "\tx = 2", NewNumber: 1},
+		},
+	}}}
+
+	var highlights [][]diff.Range
+	for _, r := range formatFile(f, false) {
+		if r.kind == rowLine {
+			highlights = append(highlights, r.highlights)
+		}
+	}
+	// The tab is expanded to 4 spaces, so "1" and "2" are at 8, not 5.
+	expect := [][]diff.Range{
+		{{Start: 8, End: 9}},
+		{{Start: 8, End: 9}},
+	}
+
+	if !reflect.DeepEqual(expect, highlights) {
+		t.Errorf("expected=%+v, actual=%+v", expect, highlights)
+	}
+}
+
+func contents(lines []diff.Line) []string {
+	texts := make([]string, len(lines))
+	for i, l := range lines {
+		texts[i] = l.Content
+	}
+	return texts
+}
