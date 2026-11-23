@@ -78,6 +78,10 @@ func runMain() int {
 		return 2
 	}
 
+	if len(d.Entries) == 0 {
+		return 0
+	}
+
 	if gitDiffFilter {
 		err = runGitDiffFilterPrinter(os.Stdout, d)
 	} else if term.IsTerminal(int(os.Stdout.Fd())) {
